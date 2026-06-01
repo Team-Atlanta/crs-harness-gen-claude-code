@@ -1,8 +1,8 @@
-name: crs-claude-code
+name: crs-harness-gen-claude-code
 type:
-  - bug-fixing
+  - harness-gen
 version: 1.0.0
-docker_registry: ghcr.io/team-atlanta/crs-claude-code
+docker_registry: ghcr.io/team-atlanta/crs-harness-gen-claude-code
 
 prepare_phase:
   hcl: oss-crs/docker-bake.hcl
@@ -15,8 +15,8 @@ target_build_phase:
       - src
 
 crs_run_phase:
-  patcher:
-    dockerfile: oss-crs/patcher.Dockerfile
+  harness-gen:
+    dockerfile: oss-crs/harness_gen.Dockerfile
     additional_env:
       # Default values. To override, set additional_env in compose yaml.
       CRS_AGENT: claude_code
@@ -31,7 +31,6 @@ crs_run_phase:
 supported_target:
   mode:
     - full
-    - delta
   language:  # language-agnostic — agent edits source, builder sidecar handles compilation
     - c
     - c++

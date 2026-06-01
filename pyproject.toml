@@ -3,19 +3,19 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "crs-claude-code"
+name = "crs-harness-gen-claude-code"
 version = "1.0.0"
-description = "CRS using Claude Code CLI for autonomous vulnerability patching"
+description = "CRS using Claude Code CLI for autonomous fuzzing harness generation"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{name = "Team Atlanta"}]
 dependencies = []
 
 [project.scripts]
-run_patcher = "patcher:main"
+run_harness_gen = "harness_gen:main"
 
 [tool.setuptools]
-py-modules = ["patcher"]
+py-modules = ["harness_gen"]
 
 [tool.setuptools.packages.find]
 include = ["agents", "agents.*"]

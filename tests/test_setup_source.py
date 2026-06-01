@@ -1,7 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-import patcher
+import harness_gen as patcher
 
 
 def test_setup_source_returns_src_dir(

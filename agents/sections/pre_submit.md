@@ -1,5 +1,6 @@
-- [ ] `apply-patch-build` retcode = 0
-{pov_line}
-- [ ] `apply-patch-test` retcode = 0 (or explicitly skipped by harness policy)
-{diff_line}
-- [ ] Patch is minimal and targets root cause
+- [ ] `build-project` retcode = 0 (build succeeds)
+- [ ] New harness binary/binaries appear in build stdout (installed to `$OUT/`)
+- [ ] New harness(es) target APIs not covered by existing harnesses
+- [ ] `{harness_dir}/fuzz-proj/` contains ALL original fuzz-proj files plus the new harness source file(s)
+- [ ] If (and only if) you changed the target source, `{harness_dir}/target-source/` contains the complete modified source tree
+- [ ] `build.sh` compiles and installs the new harness binary/binaries
