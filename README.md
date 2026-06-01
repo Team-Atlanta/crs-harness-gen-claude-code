@@ -1,66 +1,65 @@
-# crs-claude-code
+# crs-harness-gen-claude-code
 
-A [CRS](https://github.com/oss-crs) (Cyber Reasoning System) that uses [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to autonomously find and patch vulnerabilities in open-source projects.
+A [CRS](https://github.com/oss-crs) (Cyber Reasoning System) that uses [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to autonomously generate new coverage-maximizing fuzzing harnesses for OSS-Fuzz projects.
 
-Given any boot-time subset of vulnerability evidence (POVs, bug-candidate reports, diff files, and/or seeds), the agent analyzes the inputs, edits source code, builds, tests, iterates, and writes one final patch for submission.
+The agent downloads the OSS-Fuzz project and its upstream target source, explores the public API surface, designs and writes new harness source files targeting entry points not covered by existing harnesses, builds them via libCRS, iterates until the build succeeds, and submits the modified fuzz project for fuzzing.
 
 ## How it works
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ patcher.py (orchestrator)                                           │
+│ harness_gen.py (orchestrator)                                       │
 │                                                                     │
-│  1. Fetch startup inputs & source                                    │
-│     crs.fetch(POV/BUG_CANDIDATE/DIFF/SEED)                           │
-│     crs.download(src)                                                │
+│  1. Download build-output /src as the reference source tree          │
+│     crs.download_build_output(src)                                  │
 │         │                                                            │
 │         ▼                                                            │
-│  2. Launch Claude Code agent with fetched paths + CLAUDE.md          │
+│  2. Launch Claude Code agent with reference source + CLAUDE.md       │
 │     claude -p --dangerously-skip-permissions                        │
 │       --append-system-prompt <rules>                                │
 └─────────┬───────────────────────────────────────────────────────────┘
-          │ stdin: prompt with startup evidence paths
+          │ stdin: prompt (target, language, sanitizer)
           ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │ Claude Code (autonomous agent)                                      │
 │                                                                     │
 │  ┌──────────┐    ┌──────────┐    ┌──────────────┐                   │
-│  │ Analyze  │───▶│   Fix    │───▶│   Verify     │                   │
-│  │          │    │          │    │              │                   │
-│  │ Read     │    │ Edit src │    │ apply-patch  │──▶ Builder        │
-│  │ startup  │    │ git diff │    │   -build     │    sidecar        │
-│  │ evidence │    │          │    │              │◀── rebuild_id     │
-│  └──────────┘    └──────────┘    │ run-pov ────│──▶ Runner         │
-│                                  │   (all POVs)│◀── retcode        │
-│                       ▲          │ apply-patch │──▶ Builder        │
-│                       │          │   -test     │◀── retcode        │
-│                       │          └──────┬───────┘                   │
+│  │ Explore  │───▶│  Design  │───▶│   Build      │                   │
+│  │          │    │ + write  │    │              │                   │
+│  │ download │    │ harness  │    │ build-project│──▶ Builder        │
+│  │ fuzz-proj│    │ edit     │    │              │    sidecar        │
+│  │ + target │    │ build.sh │    │              │◀── retcode        │
+│  └──────────┘    └──────────┘    └──────┬───────┘                   │
+│                       ▲                 │                           │
 │                       │                 │                           │
 │                       └── retry ◀── fail?                           │
-│                                         │ pass                      │
+│                                         │ build ok                  │
 │                                         ▼                           │
-│                              Write .diff to /patches/               │
+│              Copy modified fuzz-proj (+ target-source if changed)   │
+│                   to /work/harness-proj/                            │
 └─────────────────────────────────────────────────────────────────────┘
           │
           ▼
-┌─────────────────────────┐
-│ patcher.py               │
-│ submit(first patch) ───▶ oss-crs framework
-└─────────────────────────┘
+┌─────────────────────────────┐
+│ harness_gen.py               │
+│ submit_harness(fuzz-proj,    │──▶ oss-crs framework
+│   target-source?)            │
+└─────────────────────────────┘
 ```
 
-1. **`run_patcher`** fetches available startup inputs (`POV`, `BUG_CANDIDATE`, `DIFF`, `SEED`) once, downloads source, and passes the fetched paths to the agent.
-2. The evidence is handed to **Claude Code** in a single session with generated `CLAUDE.md` instructions. No additional inputs are fetched after startup.
-3. The agent autonomously analyzes evidence, edits source, and uses **libCRS** tools (`apply-patch-build`, `run-pov`, `apply-patch-test`) to iterate as needed through the builder sidecar.
-4. When the first final `.diff` is written to `/patches/`, the patcher submits that single file with `crs.submit(DataType.PATCH, patch_path)` and exits. Later patch files or modifications are ignored.
+1. **`run_harness_gen`** downloads the build-output `/src` tree as a reference source directory (initializing a git repo if none exists) and launches the agent.
+2. **Claude Code** runs in a single session with generated `CLAUDE.md` instructions. It downloads a fresh OSS-Fuzz project (`fuzz-proj`) and upstream target source (`target-source`) via libCRS.
+3. The agent explores existing harnesses and the target API, designs 1–3 new harnesses for uncovered entry points (parsers, codecs, demuxers, format readers), writes the harness source, and updates `build.sh` to compile and install each binary to `$OUT/`.
+4. It validates with **libCRS** `build-project` (which diffs the working dirs against their downloaded bases and triggers a rebuild) through the builder sidecar, iterating freely until the build succeeds.
+5. Once the build passes, the agent copies the complete modified fuzz project to `/work/harness-proj/fuzz-proj/` — and, only if it changed upstream source, the modified tree to `/work/harness-proj/target-source/`. The orchestrator submits these with `crs.submit_harness(...)` and exits.
 
-The agent is language-agnostic — it edits source and generates diffs while the builder sidecar handles compilation. The sanitizer type (`address` only in this CRS) is passed to the agent for context.
+The agent is language-agnostic — it writes harness source and build scripts while the builder sidecar handles compilation. The sanitizer type is passed to the agent for context.
 
 ## Project structure
 
 ```
-patcher.py             # Patcher module: one-time fetch of optional inputs → agent → first-patch submit
-pyproject.toml         # Package config (run_patcher entry point)
+harness_gen.py        # Orchestrator: download source → agent → submit_harness
+pyproject.toml         # Package config (run_harness_gen entry point)
 bin/
   compile_target       # Builder phase: compiles the target project
 agents/
@@ -69,11 +68,11 @@ agents/
   sections/            # Dynamic CLAUDE.md section partial templates
   template.py          # Stub for creating new agents
 oss-crs/
-  crs.yaml             # CRS metadata (supported languages, models, etc.)
+  crs.yaml             # CRS metadata (type: harness-gen, supported languages, etc.)
   example-compose.yaml # Example crs-compose configuration
   base.Dockerfile      # Base image: Ubuntu + Node.js + Claude Code CLI + Python
   builder.Dockerfile   # Build phase image
-  patcher.Dockerfile   # Run phase image
+  harness_gen.Dockerfile # Run phase image
   docker-bake.hcl      # Docker Bake config for the base image
   sample-litellm-config.yaml  # LiteLLM proxy config template
 ```
@@ -93,21 +92,13 @@ Copy `oss-crs/example-compose.yaml` and update the paths:
 ```yaml
 crs-claude-code:
   source:
-    local_path: /path/to/crs-claude-code
+    local_path: /path/to/crs-harness-gen-claude-code
   cpuset: "2-7"
   memory: "16G"
   llm_budget: 10
   additional_env:
     CRS_AGENT: claude_code
     ANTHROPIC_MODEL: claude-opus-4-6
-
-llm_config:
-  # Optional: uncomment if you want OSS-CRS to inject an external LiteLLM endpoint.
-  # litellm:
-  #   mode: external
-  #   external:
-  #     url_env: EXTERNAL_LITELLM_API_BASE
-  #     key_env: EXTERNAL_LITELLM_API_KEY
 ```
 
 ### 2. Optional LiteLLM setup
@@ -146,24 +137,26 @@ Available models:
 ## Runtime behavior
 
 - **Execution**: `claude -p --dangerously-skip-permissions --append-system-prompt <rules>` (non-interactive, full permissions)
-- **Instruction file**: `CLAUDE.md` generated per run in the target repo
-- **LiteLLM proxy**: Framework provides `OSS_CRS_LLM_API_URL` + `OSS_CRS_LLM_API_KEY`; agent remaps to `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`
+- **Instruction file**: `CLAUDE.md` generated per run in the reference source tree
+- **LiteLLM proxy**: Framework provides `OSS_CRS_LLM_API_URL` + `OSS_CRS_LLM_API_KEY` (the key may come from `OSS_CRS_LLM_API_KEY_FILE`); agent remaps to `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`
 
 Debug artifacts:
 - Log directory: `/root/.claude` (registered via `register-log-dir`)
 - Per-run logs: `/work/agent/claude_stdout.log`, `/work/agent/claude_stderr.log`
 - Claude Code internal logs: `/root/.claude/debug/`
 
-## Patch submission
+## Harness submission
 
-The agent is instructed to satisfy these criteria before writing a patch:
+The agent is instructed to satisfy these criteria before writing to the harness output directory:
 
-1. **Builds** — compiles successfully
-2. **POVs don't crash** — all provided POV variants pass (if POVs were provided)
-3. **Tests pass** — project test suite passes (or skipped if none exists)
-4. **Semantically correct** — fixes the root cause with a minimal patch
+1. **Builds** — `build-project` returns retcode 0
+2. **New binaries installed** — each new harness binary appears in the build output, installed to `$OUT/`
+3. **New coverage** — the harness(es) target APIs not exercised by existing harnesses
+4. **Complete project** — `harness-proj/fuzz-proj/` contains all original fuzz-proj files plus the new harness source(s), and `build.sh` compiles and installs them
 
-Runtime remains trust-based: the patcher does not re-run final verification. Once the first `.diff` is written to `/patches/`, the patcher submits that single file and exits. Submitted patches cannot be edited or resubmitted, so the agent should only write to `/patches/` when it considers the patch final.
+`harness-proj/target-source/` is included only if the agent changed upstream source; otherwise it is omitted entirely.
+
+Once the agent has populated `harness-proj/fuzz-proj/`, the orchestrator submits the directories with `crs.submit_harness(fuzz_proj_dir, target_source_dir, name)` and exits. Submission is final.
 
 ## Adding a new agent
 
@@ -176,24 +169,16 @@ The agent receives:
   - `llm_api_url` — optional LiteLLM base URL
   - `llm_api_key` — optional LiteLLM key
   - `claude_home` — path for Claude Code state/logs
-- **source_dir** — clean git repo of the target project
-- **pov_dir** — boot-time POV input directory (may be empty)
-- **bug_candidate_dir** — boot-time bug-candidate directory (may be empty)
-- **diff_dir** — boot-time diff directory (may be empty)
-- **seed_dir** — boot-time seed directory (may be empty)
-- **harness** — harness name for `run-pov`
-- **patches_dir** — write exactly one final `.diff` here
-- **work_dir** — scratch space
+- **source_dir** — reference source tree (git repo of the compiled target)
+- **harness_dir** — output directory; populate `harness_dir/fuzz-proj/` (and optionally `harness_dir/target-source/`)
+- **work_dir** — scratch space (downloads, build responses, logs)
 - **language** — target language (c, c++, jvm)
-- **sanitizer** — sanitizer type (`address` only)
-All optional inputs are boot-time only. The patcher fetches them once and passes directory paths to the agent; no new POVs, bug-candidates, diff files, or seeds appear during the run.
+- **sanitizer** — sanitizer type passed for context
 
-The agent has access to three libCRS commands (builder/runner sidecars are resolved automatically via `BUILDER_MODULE` env var set by the framework):
-- `libCRS apply-patch-build <patch.diff> <response_dir>` — build a patch
-- `libCRS run-pov <pov> <response_dir> --harness <h> [--rebuild-id <id>]` — test against a POV (omit `--rebuild-id` for base build)
-- `libCRS apply-patch-test <patch.diff> <response_dir>` — run the project's test suite
+The agent has access to libCRS commands (builder sidecar resolved automatically via the `BUILDER_MODULE` env var set by the framework):
+- `libCRS download-source fuzz-proj <dst_dir>` — fetch a fresh OSS-Fuzz project directory (Dockerfile, `build.sh`, existing harness sources)
+- `libCRS download-source target-source <dst_dir>` — fetch a fresh upstream target source tree
+- `libCRS build-project --response-dir <dir> --fuzz-proj-dir <dir> [--target-source-dir <dir>]` — diff the working dirs against their bases and build (at least one source dir required)
 
-For transparent diagnostics, always inspect response_dir logs:
+For transparent diagnostics, always inspect the response dir logs:
 - Build: `stdout.log`, `stderr.log`, `retcode`
-- POV: `stdout.log`, `stderr.log`, `retcode`
-- Test: `stdout.log`, `stderr.log`, `retcode`
