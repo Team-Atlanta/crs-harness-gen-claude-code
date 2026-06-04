@@ -20,8 +20,9 @@ def test_run_does_not_pass_debug_file_flag(monkeypatch, tmp_path: Path) -> None:
         claude_code,
         "_load_prompt_templates",
         lambda: {
-            "agents_md": "{workflow_section}\n{pre_submit_section}",
+            "agents_md": "{workflow_section}\n{validate_section}\n{pre_submit_section}",
             "workflow_harness": "workflow",
+            "validate_artifacts": "validate",
             "pre_submit": "checklist",
         },
     )
@@ -86,8 +87,9 @@ def test_run_returns_true_when_harness_dir_populated(monkeypatch, tmp_path: Path
         claude_code,
         "_load_prompt_templates",
         lambda: {
-            "agents_md": "{workflow_section}\n{pre_submit_section}",
+            "agents_md": "{workflow_section}\n{validate_section}\n{pre_submit_section}",
             "workflow_harness": "workflow",
+            "validate_artifacts": "validate",
             "pre_submit": "checklist",
         },
     )

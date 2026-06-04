@@ -1,4 +1,6 @@
 - [ ] `build-project` retcode = 0 (build succeeds)
+- [ ] Downloaded build artifacts (`libCRS download-build-output build <dst> --rebuild-id <id>`) and confirmed each new harness binary is present and non-empty in the output (authoritative — do not rely on retcode alone)
+- [ ] Smoke-ran each new harness for ~20s (`<harness> -max_total_time=20 -rss_limit_mb=2560 <corpus>`) and saw it actually fuzz: non-zero `exec/s`, growing `cov:`, no startup error or immediate crash
 - [ ] New harness binary/binaries appear in build stdout (installed to `$OUT/`)
 - [ ] New harness(es) target APIs not covered by existing harnesses
 - [ ] `{harness_dir}/fuzz-proj/` contains ALL original fuzz-proj files plus the new harness source file(s)

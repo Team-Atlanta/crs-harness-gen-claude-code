@@ -15,6 +15,8 @@ You are working on a **{language}** project with **{sanitizer}** sanitizer.
 
 {workflow_section}
 
+{validate_section}
+
 ## Pre-Submit Checklist (MUST pass before writing to `{harness_dir}/`)
 
 {pre_submit_section}
@@ -40,9 +42,21 @@ Build the project from your modified directories:
   - At least one of `--fuzz-proj-dir` or `--target-source-dir` must be provided.
   - `<response-dir>/retcode`: 0 = success.
   - `<response-dir>/stdout.log` / `<response-dir>/stderr.log`: build output.
+  - `<response-dir>/rebuild_id`: id of this build — pass it to `download-build-output` to fetch the artifacts.
 
   When a libCRS command fails, inspect both stdout and stderr before deciding the next step.
   Failed builds are not cached and can be retried.
+
+Download build artifacts (to validate the harness actually compiled):
+
+  `libCRS download-build-output <src_path> <dst_dir> --rebuild-id <id>`
+  - Downloads compiled build output from a finished build. `src_path` is the output
+    name produced by the build: use `build` for the `$OUT/` contents (your harness
+    binaries), or `src` for the build's source tree.
+  - `<id>` is the `rebuild_id` written to the build's `--response-dir`.
+  - Use this to confirm each new harness binary was actually produced and installed, then
+    run it for a few seconds — a zero retcode alone does not guarantee it works. See
+    "Validate the New Harness".
 
 ## Required Validation Flow
 
@@ -55,7 +69,8 @@ Build the project from your modified directories:
 7. Build: `libCRS build-project --response-dir {work_dir}/build-resp --fuzz-proj-dir {work_dir}/fuzz-proj`
 8. If `retcode != 0`, inspect logs, fix errors, and rebuild.
 9. If the target source also needs changes, edit `{work_dir}/target-src` directly, then add `--target-source-dir {work_dir}/target-src` to the build-project command.
-10. Once build succeeds, copy the modified directories into `{harness_dir}/` (see Submission).
+10. Validate the harness: `libCRS download-build-output build {work_dir}/build-out --rebuild-id "$(cat {work_dir}/build-resp/rebuild_id)"`, confirm each new harness binary is present and non-empty, then run each one for ~20s to prove it fuzzes: `{work_dir}/build-out/fuzz_foo -max_total_time=20 -rss_limit_mb=2560 {work_dir}/corpus-fuzz_foo` (see "Validate the New Harness"). If a binary is missing, errors at startup, or does ~0 runs, fix it and rebuild — do not submit.
+11. Once the build succeeds AND every new harness is confirmed in the artifacts AND completed a clean short run, copy the modified directories into `{harness_dir}/` (see Submission).
 
 ## Submission
 

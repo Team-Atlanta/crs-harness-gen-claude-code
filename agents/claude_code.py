@@ -40,6 +40,7 @@ def _load_prompt_templates() -> dict[str, str]:
     return {
         "agents_md": _TEMPLATE_PATH.read_text(),
         "workflow_harness": _load_section("workflow_harness.md"),
+        "validate_artifacts": _load_section("validate_artifacts.md"),
         "pre_submit": _load_section("pre_submit.md"),
     }
 
@@ -162,6 +163,10 @@ def run(
 
     workflow_section = templates["workflow_harness"].format(**fmt_vars)
 
+    validate_section = templates["validate_artifacts"].format(
+        work_dir=work_dir, harness_dir=harness_dir
+    )
+
     pre_submit_section = templates["pre_submit"].format(harness_dir=harness_dir)
 
     claude_md = templates["agents_md"].format(
@@ -171,6 +176,7 @@ def run(
         work_dir=work_dir,
         harness_dir=harness_dir,
         workflow_section=workflow_section,
+        validate_section=validate_section,
         pre_submit_section=pre_submit_section,
     )
     (source_dir / "CLAUDE.md").write_text(claude_md)
